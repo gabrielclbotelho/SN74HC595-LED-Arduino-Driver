@@ -1,0 +1,575 @@
+// PIN configuration
+#define SER 2 //serial input
+#define OE 3 //ouput enable when low
+#define RCLK 4 //storage register clock
+#define SRCLK 5 // shift register clock
+#define SRCLR 6 //clears reg when low
+
+//variables
+int a,b;
+char c; // menu selection input variable
+bool stat[] = {0,1,0,0,1,0,0,0}; //Function vector: Ser,OE,RCLK,SRCLK,SRCLR,Double TICK, single DTICK, Samples
+char *names[] = {"Ser","OE","RCLK","SRCLK","SRCLR","DTICK", "SDTICK", "Samples"};
+//////////////////////////////////////////// TEST MODE ////////////////////////////////////////////
+bool TestMode = false; //activates aditional features for enhanced debugging
+//////////////////////////////////////////// TEST MODE ////////////////////////////////////////////
+int  TickCount = 0; //clock prescaller variable used in "FrequencyChange" function
+int  TickResetCount = 0; //clears register after filling it
+int TickTimer = -1; // Variable that defines Clock speed
+String TickTimerInput;
+bool TimerSet = false; // checks if timer has been set for double ticking 
+bool Ticked = false; // for test purposes
+int *valpass;
+bool ActiveSam = false;
+
+
+//functions
+void RegClear (void);  //cleans Register
+void StatSet(char a); //main control function that defines statuses for other functions to execute
+void ScreenClear (void); //clears screen
+void ScreenPrint (void); //prints standard screen
+void OutputSet (void); //executes changes in StatSet (software to hardware function)
+void ScreenPrintTick (void); //Prints Special Screen used for Single Ticks
+void ScreenShift(int Size); //Shifts screen to recenter text
+void Init (void); // basic initialization function, sets standard values and outputs
+void Samples(int* type, int* timer); //function that generates samples of custom output patterns
+void ClockTick(void); //ticks both clocks in correct order (executes single tick)
+void FrequencyChange(void); // changes continuous clock tick frequency
+int ReceiveIntInput(void);
+int* SamplesChoiceScreen (void);
+
+//maximum double tick frequency 3200hz (310us) 
+
+////////////////////////////////////////////// PROGRAM ////////////////////////////////////////////////////
+
+void setup()
+{
+  pinMode(LED_BUILTIN, OUTPUT);
+  Serial.begin(500000);// anything above this becomes unstable
+  pinMode(SER,OUTPUT);
+  pinMode(OE,OUTPUT);
+  pinMode(RCLK,OUTPUT);
+  pinMode(SRCLK,OUTPUT);
+  pinMode(SRCLR,OUTPUT);
+  Init();
+}
+
+void loop()
+{
+  c = Serial.read();
+  if(c != -1)
+  {
+    StatSet(c);
+    if(c == 'd' || c == 'f' || c == 't')
+    {
+      ScreenPrintTick();
+      OutputSet();      
+    }
+    ScreenPrint();
+  }
+  OutputSet();
+}
+
+void Init (void)
+{
+  digitalWrite(LED_BUILTIN, LOW);
+  digitalWrite(SER,LOW);
+  digitalWrite(OE,HIGH);
+  digitalWrite(RCLK,LOW);
+  digitalWrite(SRCLK,LOW);
+  digitalWrite(SRCLR, HIGH); // turns reset off
+  ScreenShift(6);
+  Serial.println("Hello, welcome to gabe's test program");
+  Serial.println("Press P to turn on TestMode and Enable aditional information");
+  delay(3000);
+  
+  ScreenPrint();
+  return;
+}
+
+
+void StatSet(char a)
+{
+      switch (a)
+      {
+      case 'a': 
+        stat[0] = !stat[0];
+        break;
+      case 's':
+        stat[1] = !stat[1];
+        break;
+      case 'd':
+        stat[2] = !stat[2];
+        break;
+      case 'f':
+        stat[3] = !stat[3];
+        break;
+      case 't':
+        stat[4] = !stat[4];
+        break;
+      case 'g':
+        stat[5] = !stat[5];
+        break;
+      case 'h':
+        stat[6] = !stat[6];
+        break;
+      case 'c':
+        stat[7] = !stat[7];
+        break;
+      case 'p':
+        TestMode = !TestMode;
+        break;
+      default:
+        ScreenShift(1);
+        Serial.println("invalid input");
+        delay(600);
+        break;
+      }
+      
+      return;
+}
+
+void ScreenClear (void)
+{
+        Serial.println();
+        Serial.println();
+        Serial.println();
+        Serial.println();
+        Serial.println();
+        Serial.println();
+        Serial.println();
+        Serial.println();
+        Serial.println();
+        Serial.println();
+        Serial.println();
+        Serial.println();
+        Serial.println();
+        Serial.println();
+        Serial.println();
+        Serial.println();
+        Serial.println();
+        return;
+}
+
+void ScreenPrint (void)
+{
+  
+  ScreenClear();
+  //rest of screen print
+  if(stat[0] == 0)
+  {
+    Serial.println("A = serial input, current BIT: 0");
+  }
+  else
+  {
+    Serial.println("A = serial input, current BIT: 1");
+  }
+  if(stat[1] == 1)
+  {
+    Serial.println("S = output enable, output status: DISABLED ");
+  }
+  else
+  {
+    Serial.println("S = output enable, output status: ENABLED ");
+  }
+  Serial.println("D = Storage clock");
+  Serial.println("F = Register clock");
+  Serial.println("C = Extras");
+  Serial.println("T = Register Clear");
+
+  if(stat[5] == 1)
+  {
+    Serial.println("G = double tick, status: ACTIVE");
+  }
+  else
+  {
+    Serial.println("G = double tick, status: INACTIVE");
+  }
+  
+  Serial.println("H = double tick single event");
+  
+  if(TestMode)
+  {
+    Serial.println();
+    int z = sizeof(stat)/sizeof(bool);
+    for(int i = 0; i < z; i++)
+    {
+      Serial.print(names[i]);
+      Serial.print(": ");
+      Serial.print(stat[i]);
+      if( i == int(z/2))
+      {
+        Serial.println();
+      }
+      if(i != z-1)
+      {
+        Serial.print(", ");
+      }
+      
+    }
+    Serial.println();
+    Serial.println(c);
+    ScreenShift(1);
+  }
+  else
+  {
+    ScreenShift(4);
+  }
+  
+  return;
+}
+
+void ScreenPrintTick (void)
+{
+  ScreenClear();
+  if(stat[2] == 1 || stat[3] == 1 || stat[4] == 0)
+  {
+    if(stat[2] == 1)
+    {
+      Serial.println("Storage Clock Tick");
+    }
+    if(stat[3] == 1)
+    {
+      Serial.println("Register Clock Tick");
+    }
+    if(stat[4] == 0)
+    {
+      Serial.println("Register Cleared");
+    }
+    
+  }
+  ScreenShift(6);
+  delay(600);
+  return;
+}
+
+void ScreenShift(int Size)
+{
+    for(int i = 0; i < Size; i++)
+    {
+      Serial.println();
+    }
+    return;
+}
+
+
+int* SamplesChoiceScreen (void)
+{
+
+retry:
+
+    int digits[] = {0,0};
+    ScreenClear();
+    Serial.println("Please Select Desired Sample");
+    Serial.println("1 = checkers , 2 = Ladder , 3 = twos");
+    ScreenShift(6);
+
+    while(digits[0] == 0)
+    {
+      digits[0] = Serial.parseInt();
+    }
+    Serial.println(digits[0]);
+
+    ScreenClear();
+    switch(digits[0])
+    {
+      case 1:
+        Serial.println("you selected \"Checkers\" ");
+        ScreenShift(8);
+      break;
+      case 2:
+        Serial.println("you selected \"Ladder\" ");
+        Serial.println("please select the delay in ms");
+        ScreenShift(8);
+        while(digits[1] == 0)
+        {
+          digits[1] = Serial.parseInt();
+        }
+      break;
+      case 3:
+        Serial.println("you selected \"twos\" ");
+        ScreenShift(8);
+        delay(600);
+      break;
+      default:
+        Serial.println("invalid entry, try again");
+        ScreenShift(8);
+        delay(600);
+        goto retry;
+      break;
+    }
+    
+    return digits;
+}
+
+
+void OutputSet(void)
+{
+  
+  if(stat[0])
+  {
+    digitalWrite(SER,HIGH);
+  }
+  else
+  {
+    digitalWrite(SER,LOW);
+  }
+
+  if(stat[1])
+  {
+    digitalWrite(OE,HIGH);
+  }
+  else 
+  {
+    digitalWrite(OE,LOW);
+  }
+
+  if(stat[2])
+  {
+    digitalWrite(RCLK,HIGH);
+    digitalWrite(RCLK,LOW);
+    stat[2] = 0;
+  }
+     
+  if(stat[3])
+  {
+    digitalWrite(SRCLK,HIGH);
+    digitalWrite(SRCLK,LOW);
+    stat[3] = 0;
+  }
+
+  if(!stat[4])
+  {
+    digitalWrite(SRCLR,LOW);
+    digitalWrite(SRCLR,HIGH);
+    stat[4] = 1;
+  }
+
+  if(stat[6])
+  {
+    ClockTick();
+    stat[6] = 0;
+  }
+  if(stat[5])
+  {
+      if(!TimerSet)
+      {
+        FrequencyChange();
+        TimerSet = true;
+      }
+      else
+      {
+        if(TestMode)
+        {
+          Serial.print("TickTimer: ");
+          Serial.print(TickTimer);
+          Serial.print(" , TickCount: ");
+          Serial.print(TickCount);
+          Serial.print(" , TickResetCount:  ");
+          Serial.print(TickResetCount);
+          Serial.print(" , Ticked: ");
+          Serial.print(Ticked);
+          Serial.print(" , Time: ");
+          Serial.println(micros());
+        }
+        
+        if(TickTimer == TickCount)
+        {
+          digitalWrite(SRCLK,HIGH); //todo, fix this!
+          digitalWrite(SRCLK,LOW);
+          digitalWrite(RCLK,HIGH);
+          digitalWrite(RCLK,LOW);
+          TickCount = 0;
+          Ticked = !Ticked;
+          if(TickResetCount == 9)
+          {
+            RegClear();
+            TickResetCount = 0;
+          }
+          TickResetCount++;
+        }
+        TickCount++;
+      }
+      
+  }
+  else
+  {
+    TimerSet = false;
+  }
+  
+  if(stat[7])
+  {
+    if(!ActiveSam)
+    {     
+      valpass = SamplesChoiceScreen();     
+      a = valpass[0];
+      b = valpass[1];
+    }
+    Samples(a,b);
+    ActiveSam = true;
+  }
+  else
+  {
+    ActiveSam = false;
+  }
+  return;
+}
+
+
+void Samples(int type, int timer)
+{
+  RegClear();
+  
+  
+  switch (type)
+  {
+      case 1:
+        digitalWrite(SER,HIGH);
+        ClockTick();
+        digitalWrite(SER,LOW);
+        ClockTick();
+        digitalWrite(SER,HIGH);
+        ClockTick();
+        digitalWrite(SER,LOW);
+        ClockTick();
+        digitalWrite(SER,HIGH);
+        ClockTick();
+        digitalWrite(SER,LOW);
+        ClockTick();
+        digitalWrite(SER,HIGH);
+        ClockTick();
+        digitalWrite(SER,LOW);
+        ClockTick();
+        delay(100);
+        break;
+      case 2:
+        
+        digitalWrite(SER,HIGH);
+        ClockTick();
+        digitalWrite(SER,LOW);
+        delay(timer);
+        for(int i = 0; i < 7; i++)
+        {
+          ClockTick();
+          delay(timer);
+        }
+        break;
+      case 3:
+        digitalWrite(SER,HIGH);
+        ClockTick();
+        digitalWrite(SER,HIGH);
+        ClockTick();
+        digitalWrite(SER,LOW);
+        ClockTick();
+        digitalWrite(SER,LOW);
+        ClockTick();
+        digitalWrite(SER,HIGH);
+        ClockTick();
+        digitalWrite(SER,HIGH);
+        ClockTick();
+        digitalWrite(SER,LOW);
+        ClockTick();
+        digitalWrite(SER,LOW);
+        ClockTick();
+      default:
+        Serial.println("not valid");
+        delay(600);
+        break;
+  }
+  
+  char leave = Serial.read();
+  if(leave == 'c')
+  {
+    stat[7] = false;
+    ScreenPrint();
+  }
+  return;
+}
+
+void ClockTick(void)
+{
+  digitalWrite(SRCLK,HIGH);
+  digitalWrite(SRCLK,LOW);
+  digitalWrite(RCLK,HIGH);
+  digitalWrite(RCLK,LOW);
+}
+
+
+void FrequencyChange(void)
+{
+retry:
+  char d = -1;
+  long digits = 0;
+  
+  ScreenClear();
+  Serial.println("Do you want to define the clock period?");
+  Serial.println("If not, clock is set to max: 27KHz");
+  Serial.println("y = yes, n = no");
+  ScreenShift(6);
+  
+  TickTimer = -1;
+  while(d == -1)
+  {
+    d = Serial.read();
+  }
+  
+  if(d == 'y')
+  {
+    ScreenClear();
+    Serial.println("clock frequency (KHz) = 33.939x^-0.865");
+    Serial.println("please input value as integer");
+    ScreenShift(6);
+
+    while(digits == 0)
+    {
+      digits = Serial.parseInt();
+    }
+    
+    ScreenClear();
+    float z = 33.939*pow(digits,-0.865);
+    Serial.print("the frequency is: ");
+    Serial.print(z);
+    Serial.println(" KHz");
+    TickTimer = digits;
+    if(TestMode)
+    {
+      Serial.println(TickTimer);
+    }
+    ScreenShift(6);
+    delay(2000);
+  }
+  else if(d == 'n')
+  {
+    TickTimer = 1;
+  }
+  else
+  {
+    ScreenClear();
+    Serial.println("invalid input, try again");
+    ScreenShift(8);
+    delay(800);
+    goto retry;
+  }
+  d = -1;
+  ScreenPrint();
+  return;
+}
+
+void RegClear (void)
+{
+  digitalWrite(SRCLR,LOW);
+  digitalWrite(SRCLR,HIGH);
+  digitalWrite(SER,LOW);
+  ClockTick();
+  return;
+}
+
+
+
+
+
+
+
+
+
+
